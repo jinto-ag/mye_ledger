@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FinPulse INR</title>
+  <meta name="theme-color" content="#0f172a" />
+  <style>
+    :root{--bg:#f8fafc;--card:#fff;--text:#0f172a;--muted:#64748b;--primary:#2563eb;--good:#059669;--bad:#dc2626;--warn:#d97706;--border:#e2e8f0}
+    *{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .app{max-width:1100px;margin:0 auto;padding:16px}.top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+    .title{font-size:1.35rem;font-weight:700}.subtitle{color:var(--muted);font-size:.9rem}.grid{display:grid;gap:12px}
+    .kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:14px 0}.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px}
+    .k{font-size:.8rem;color:var(--muted)}.v{font-size:1.2rem;font-weight:700}.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+    nav{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 14px}.btn{border:1px solid var(--border);background:#fff;padding:8px 11px;border-radius:10px;cursor:pointer}
+    .btn.active,.btn.primary{background:var(--primary);color:#fff;border-color:var(--primary)}
+    input,select{width:100%;padding:9px;border:1px solid var(--border);border-radius:10px;background:#fff}label{font-size:.8rem;color:var(--muted)}
+    .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}.list{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:auto}
+    .item{display:flex;justify-content:space-between;gap:8px;border:1px solid var(--border);border-radius:10px;padding:8px}
+    .small{font-size:.8rem;color:var(--muted)} .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+    .day{border:1px solid var(--border);border-radius:8px;min-height:75px;padding:4px;font-size:.75rem;background:#fff}
+    .dot{display:block;width:8px;height:8px;border-radius:50%;margin-top:4px}.d-in{background:var(--good)}.d-ex{background:var(--bad)}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+(() => {
+  const {useState,useMemo,useEffect} = React;
+  const h = React.createElement;
+  const INR = n => new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(Number(n||0));
+  const ym = d => new Date(d).toISOString().slice(0,7);
+  const today = () => new Date().toISOString().slice(0,10);
+
+  const Repo = {
+    key:'finpulse_v1',
+    load(){try{return JSON.parse(localStorage.getItem(this.key))||null}catch{return null}},
+    save(s){localStorage.setItem(this.key,JSON.stringify(s))}
+  };
+
+  const createDefault = () => ({
+    tx:[{id:1,type:'income',cat:'Salary',amount:85000,date:today(),note:'Monthly salary'}],
+    budgets:[{id:1,cat:'Needs',limit:30000,month:ym(today())},{id:2,cat:'Wants',limit:12000,month:ym(today())}],
+    goals:[{id:1,name:'Emergency Fund',target:180000,saved:45000,due:'2026-12-31'}],
+    debts:[{id:1,name:'Credit Card',balance:38000,rate:36,minPay:3000}],
+    wealth:[{id:1,name:'Index Fund',value:120000,type:'asset'}],
+    schedules:[{id:1,title:'SIP',date:today(),type:'expense',amount:5000}]
+  });
+
+  const Analytics = {
+    monthly(tx,m){const t=tx.filter(x=>ym(x.date)===m);const income=t.filter(x=>x.type==='income').reduce((a,b)=>a+b.amount,0);const expense=t.filter(x=>x.type==='expense').reduce((a,b)=>a+b.amount,0);return {income,expense,savings:income-expense}},
+    netWorth(state){const assets=state.wealth.filter(x=>x.type==='asset').reduce((a,b)=>a+b.value,0);const debts=state.debts.reduce((a,b)=>a+b.balance,0);return assets-debts},
+    ratios(state,m){const {income,expense,savings}=this.monthly(state.tx,m);const needs=state.tx.filter(x=>ym(x.date)===m&&x.type==='expense'&&['Rent','Utilities','Groceries','EMI'].includes(x.cat)).reduce((a,b)=>a+b.amount,0);const wants=Math.max(0,expense-needs);return {sr:income?100*savings/income:0,needs:income?100*needs/income:0,wants:income?100*wants/income:0}},
+    actions(state,m){const r=this.ratios(state,m), msgs=[]; if(r.sr<20) msgs.push('Raise savings rate toward ≥20% (evidence-backed threshold for resilience).');
+      if(r.needs>50) msgs.push('Needs >50% income. Renegotiate fixed costs to restore cash flow.');
+      if(state.debts.some(d=>d.rate>24)) msgs.push('High APR debt found. Prioritize avalanche payments for mathematically fastest payoff.');
+      const em=state.goals.find(g=>/emergency/i.test(g.name)); if(em && em.saved<em.target*0.5) msgs.push('Emergency fund below 50% target. Automate transfer right after income day.');
+      if(!msgs.length) msgs.push('On track. Continue 50/30/20 budgeting and monthly review cadence.'); return msgs;}
+  };
+
+  function App(){
+    const [state,setState]=useState(()=>Repo.load()||createDefault());
+    const [tab,setTab]=useState('dashboard');
+    const [form,setForm]=useState({type:'expense',cat:'Groceries',amount:'',date:today(),note:''});
+    const m=ym(today());
+    useEffect(()=>Repo.save(state),[state]);
+    const k=useMemo(()=>({month:Analytics.monthly(state.tx,m),nw:Analytics.netWorth(state),rat:Analytics.ratios(state,m),acts:Analytics.actions(state,m)}),[state,m]);
+    const addTx=()=>{if(!form.amount)return;setState(s=>({...s,tx:[{...form,id:Date.now(),amount:+form.amount},...s.tx]}));setForm({...form,amount:'',note:''});};
+    const addSimple=(key,obj)=>setState(s=>({...s,[key]:[{...obj,id:Date.now()},...s[key]]}));
+
+    const section = {
+      dashboard: h('div',{className:'grid'},
+        h('div',{className:'grid kpis'},
+          metric('Income',INR(k.month.income),'good'), metric('Expense',INR(k.month.expense),'bad'), metric('Savings',INR(k.month.savings),k.month.savings>=0?'good':'bad'), metric('Net Worth',INR(k.nw),k.nw>=0?'good':'bad'), metric('Savings Rate',k.rat.sr.toFixed(1)+'%',k.rat.sr>=20?'good':'warn')
+        ),
+        h('div',{className:'card'},h('b',null,'Actionable Insights'), h('ul',null,...k.acts.map((a,i)=>h('li',{key:i},a))))
+      ),
+      transactions: h('div',{className:'grid'}, h('div',{className:'card'}, h('div',{className:'two'},
+        field('Type', h('select',{value:form.type,onChange:e=>setForm({...form,type:e.target.value})}, option('expense'),option('income'))),
+        field('Category', h('input',{value:form.cat,onChange:e=>setForm({...form,cat:e.target.value})})),
+        field('Amount INR', h('input',{type:'number',value:form.amount,onChange:e=>setForm({...form,amount:e.target.value})})),
+        field('Date', h('input',{type:'date',value:form.date,onChange:e=>setForm({...form,date:e.target.value})})),
+        field('Note', h('input',{value:form.note,onChange:e=>setForm({...form,note:e.target.value})}))),
+        h('button',{className:'btn primary',onClick:addTx},'Add Transaction')),
+        h('div',{className:'card list'},...state.tx.slice(0,30).map(t=>h('div',{className:'item',key:t.id},h('div',null,h('div',null,t.cat,' · ',t.date),h('div',{className:'small'},t.note||'')),h('b',{className:t.type==='income'?'good':'bad'},(t.type==='income'?'+':'-')+INR(t.amount))))
+      ),
+      planning: h('div',{className:'grid two'},
+        box('Budgets',state.budgets,b=>`${b.cat}: ${INR(b.limit)} (${b.month})`,()=>addSimple('budgets',{cat:'New',limit:10000,month:m})),
+        box('Goals',state.goals,g=>`${g.name}: ${INR(g.saved)} / ${INR(g.target)}`,()=>addSimple('goals',{name:'New Goal',target:100000,saved:0,due:'2027-12-31'})),
+        box('Debts',state.debts,d=>`${d.name}: ${INR(d.balance)} @ ${d.rate}%`,()=>addSimple('debts',{name:'Loan',balance:50000,rate:14,minPay:2000})),
+        box('Wealth',state.wealth,w=>`${w.name}: ${INR(w.value)}`,()=>addSimple('wealth',{name:'Asset',value:10000,type:'asset'}))
+      ),
+      calendar: calendarView(state)
+    };
+
+    return h('div',{className:'app'}, h('div',{className:'top'}, h('div',null,h('div',{className:'title'},'FinPulse INR'),h('div',{className:'subtitle'},'Evidence-based personal finance PWA'))),
+      h('nav',null,['dashboard','transactions','planning','calendar'].map(t=>h('button',{className:'btn '+(tab===t?'active':''),onClick:()=>setTab(t),key:t},t[0].toUpperCase()+t.slice(1))))), section[tab]);
+  }
+
+  const metric=(k,v,cls)=>h('div',{className:'card'},h('div',{className:'k'},k),h('div',{className:'v '+cls},v));
+  const field=(l,c)=>h('div',null,h('label',null,l),c);
+  const option=t=>h('option',{value:t,key:t},t);
+  const box=(title,data,fmt,onAdd)=>h('div',{className:'card'},h('div',{style:{display:'flex',justifyContent:'space-between'}},h('b',null,title),h('button',{className:'btn',onClick:onAdd},'+')),h('div',{className:'list'},...data.map(x=>h('div',{className:'item',key:x.id},fmt(x)))));
+
+  function calendarView(state){const d=new Date(), y=d.getFullYear(), m=d.getMonth(); const first=new Date(y,m,1).getDay(), days=new Date(y,m+1,0).getDate();
+    const items=[...state.tx,...state.schedules].map(x=>({date:x.date,type:x.type})); const cells=[]; for(let i=0;i<first;i++)cells.push(h('div',{className:'day',key:'e'+i}));
+    for(let day=1;day<=days;day++){const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`; const ev=items.filter(i=>i.date===ds);
+      cells.push(h('div',{className:'day',key:day},h('div',null,day),...ev.slice(0,3).map((e,j)=>h('span',{className:'dot '+(e.type==='income'?'d-in':'d-ex'),key:j}))));}
+    return h('div',{className:'card'},h('b',null,'Calendar'),h('div',{className:'small'},'Dots: green income, red expense/scheduled outflow'),h('div',{className:'calendar'},...cells));
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+
+  const manifest={name:'FinPulse INR',short_name:'FinPulse',display:'standalone',start_url:'./',background_color:'#f8fafc',theme_color:'#0f172a',icons:[]};
+  const murl=URL.createObjectURL(new Blob([JSON.stringify(manifest)],{type:'application/json'}));
+  const link=document.createElement('link'); link.rel='manifest'; link.href=murl; document.head.appendChild(link);
+  if('serviceWorker' in navigator){const sw=`self.addEventListener('install',e=>e.waitUntil(caches.open('finpulse-v1').then(c=>c.addAll(['./']))));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))));`;
+    navigator.serviceWorker.register(URL.createObjectURL(new Blob([sw],{type:'text/javascript'}))).catch(()=>{});
+  }
+})();
+</script>
+</body></html>
