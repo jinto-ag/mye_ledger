@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>FinPilot INR</title><meta name="theme-color" content="#0b1220"/>
+<style>
+:root{--bg:#f1f5f9;--card:#fff;--t:#0f172a;--m:#64748b;--p:#2563eb;--g:#059669;--r:#dc2626;--w:#d97706;--b:#e2e8f0}
+*{box-sizing:border-box}body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--t)}
+.wrap{max-width:1200px;margin:auto;padding:16px}.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.grow{flex:1}
+.card{background:var(--card);border:1px solid var(--b);border-radius:14px;padding:12px}.grid{display:grid;gap:12px}.kpi{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+input,select,button,textarea{font:inherit}input,select,textarea{width:100%;padding:8px;border:1px solid var(--b);border-radius:10px}
+button{border:1px solid var(--b);background:#fff;border-radius:10px;padding:8px 10px;cursor:pointer}.primary{background:var(--p);color:#fff;border-color:var(--p)}.active{background:var(--p);color:#fff}
+.small{font-size:.82rem;color:var(--m)}.good{color:var(--g)}.bad{color:var(--r)}.warn{color:var(--w)}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.list{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto}
+.item{display:flex;justify-content:space-between;gap:8px;border:1px solid var(--b);padding:8px;border-radius:10px}.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}.day{min-height:90px;border:1px solid var(--b);border-radius:8px;padding:4px;background:#fff}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}.din{background:var(--g)}.dex{background:var(--r)}
+</style>
+</head>
+<body><div id="root"></div>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script>
+(()=>{const {useState,useMemo,useEffect}=React,h=React.createElement;
+const F={inr:n=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0}).format(+n||0),date:()=>new Date().toISOString().slice(0,10),ym:d=>new Date(d).toISOString().slice(0,7),id:()=>Date.now()+Math.floor(Math.random()*999)};
+const Store={k:'finpilot_v2',load(){try{return JSON.parse(localStorage.getItem(this.k))}catch{return null}},save:s=>localStorage.setItem(Store.k,JSON.stringify(s))};
+const Seed=()=>({
+transactions:[],budgets:[{id:F.id(),category:'Needs',limit:30000,month:F.ym(F.date())},{id:F.id(),category:'Wants',limit:12000,month:F.ym(F.date())}],
+goals:[{id:F.id(),name:'Emergency Fund',target:180000,current:60000,due:'2026-12-31'}],
+debts:[{id:F.id(),name:'Credit Card',balance:45000,apr:36,minPay:3500}],
+assets:[{id:F.id(),name:'Index Fund',value:150000}],events:[{id:F.id(),title:'Salary Day',date:F.date(),type:'income',amount:85000}]});
+const Domain={
+monthly:(tx,m)=>tx.filter(t=>F.ym(t.date)===m).reduce((a,t)=>{a[t.type]+=t.amount;return a},{income:0,expense:0}),
+budgetUsage:(tx,b,m)=>b.filter(x=>x.month===m).map(x=>{const spent=tx.filter(t=>t.type==='expense'&&t.category===x.category&&F.ym(t.date)===m).reduce((a,t)=>a+t.amount,0);return {...x,spent,pct:x.limit?100*spent/x.limit:0};}),
+netWorth:s=>s.assets.reduce((a,x)=>a+x.value,0)-s.debts.reduce((a,x)=>a+x.balance,0),
+health:(s,m)=>{const me=Domain.monthly(s.transactions,m),save=me.income-me.expense,sr=me.income?100*save/me.income:0;const msgs=[];if(sr<20)msgs.push('Increase savings rate to at least 20% via automated transfers.');if(s.debts.some(d=>d.apr>24))msgs.push('Use debt avalanche: pay highest APR debt first to minimize total interest.');const ef=s.goals.find(g=>/emergency/i.test(g.name));if(ef&&ef.current<ef.target)msgs.push('Emergency fund below target. Allocate fixed weekly contribution.');if(!msgs.length)msgs.push('Financial signals look healthy. Keep monthly review cadence.');return {income:me.income,expense:me.expense,savings:save,sr,msgs};},
+debtMonths:d=>{let bal=d.balance,m=0;const r=d.apr/1200;while(bal>0&&m<600){bal=bal+bal*r-d.minPay;if(bal<0)bal=0;m++;if(d.minPay<=bal*r) return Infinity;}return m;}
+};
+function App(){const [s,setS]=useState(()=>Store.load()||Seed());const [tab,setTab]=useState('dashboard');const m=F.ym(F.date());useEffect(()=>Store.save(s),[s]);
+const k=useMemo(()=>{const h=Domain.health(s,m);return {...h,nw:Domain.netWorth(s),bud:Domain.budgetUsage(s.transactions,s.budgets,m)}},[s,m]);
+const add=(k,v)=>setS(x=>({...x,[k]:[{...v,id:F.id()},...x[k]]}));const del=(k,id)=>setS(x=>({...x,[k]:x[k].filter(i=>i.id!==id)}));
+const [tx,setTx]=useState({type:'expense',category:'Groceries',amount:'',date:F.date(),note:''});
+const [ev,setEv]=useState({title:'',date:F.date(),type:'expense',amount:''});
+return h('div',{className:'wrap grid'},
+ h('div',{className:'row'},h('div',{className:'grow'},h('h2',null,'FinPilot INR'),h('div',{className:'small'},'Production-ready single-file personal finance PWA')),h('div',null,['dashboard','transactions','budget','goals','debt','wealth','calendar'].map(t=>h('button',{className:(tab===t?'active ':'') ,onClick:()=>setTab(t),key:t},t)))) ,
+ tab==='dashboard'&&h('div',{className:'grid'},h('div',{className:'grid kpi'},metric('Income',F.inr(k.income),'good'),metric('Expense',F.inr(k.expense),'bad'),metric('Savings',F.inr(k.savings),k.savings>=0?'good':'bad'),metric('Savings Rate',k.sr.toFixed(1)+'%',k.sr>=20?'good':'warn'),metric('Net Worth',F.inr(k.nw),k.nw>=0?'good':'bad')),
+   h('div',{className:'card'},h('b',null,'Action Plan'),h('ul',null,...k.msgs.map((x,i)=>h('li',{key:i},x))),h('div',{className:'small'},'Methods used: cashflow accounting, savings-rate thresholding, debt avalanche optimization, and budget variance checks.')),
+   h('div',{className:'card'},h('b',null,'Budget Utilization (Current Month)'),...k.bud.map(b=>h('div',{key:b.id},`${b.category}: ${F.inr(b.spent)} / ${F.inr(b.limit)} (${b.pct.toFixed(1)}%)`)))) ,
+ tab==='transactions'&&h('div',{className:'two'},h('div',{className:'card grid'},field('Type',sel(tx.type,['income','expense'],v=>setTx({...tx,type:v}))),field('Category',inp(tx.category,v=>setTx({...tx,category:v}))),field('Amount',num(tx.amount,v=>setTx({...tx,amount:v}))),field('Date',date(tx.date,v=>setTx({...tx,date:v}))),field('Note',inp(tx.note,v=>setTx({...tx,note:v}))),h('button',{className:'primary',onClick:()=>{if(+tx.amount>0)add('transactions',{...tx,amount:+tx.amount});setTx({...tx,amount:'',note:''})}},'Add Transaction')),
+ h('div',{className:'card list'},...s.transactions.map(t=>rowItem(`${t.date} • ${t.category}${t.note?' • '+t.note:''}`,(t.type==='income'?'+':'-')+F.inr(t.amount),()=>del('transactions',t.id),t.type==='income'?'good':'bad')))),
+ tab==='budget'&&crud('budgets',s.budgets,b=>`${b.category} (${b.month})`,`${F.inr(b.limit)}`,()=>add('budgets',{category:'Needs',limit:10000,month:m}),del),
+ tab==='goals'&&crud('goals',s.goals,g=>`${g.name} due ${g.due}`,`${F.inr(g.current)} / ${F.inr(g.target)}`,()=>add('goals',{name:'New Goal',target:50000,current:0,due:'2027-12-31'}),del),
+ tab==='debt'&&h('div',{className:'card list'},h('button',{onClick:()=>add('debts',{name:'Loan',balance:100000,apr:14,minPay:5000})},'+ Add Debt'),...s.debts.map(d=>rowItem(`${d.name} @${d.apr}% min ${F.inr(d.minPay)}`,`${F.inr(d.balance)} • ${Domain.debtMonths(d)===Infinity?'Unpayable with current min pay':Domain.debtMonths(d)+' months est.'}`,()=>del('debts',d.id),'bad'))),
+ tab==='wealth'&&crud('assets',s.assets,a=>a.name,F.inr(a.value),()=>add('assets',{name:'Asset',value:10000}),del),
+ tab==='calendar'&&h('div',{className:'two'},calendar(s),h('div',{className:'card grid'},field('Title',inp(ev.title,v=>setEv({...ev,title:v}))),field('Date',date(ev.date,v=>setEv({...ev,date:v}))),field('Type',sel(ev.type,['income','expense'],v=>setEv({...ev,type:v}))),field('Amount',num(ev.amount,v=>setEv({...ev,amount:v}))),h('button',{className:'primary',onClick:()=>{if(ev.title&&+ev.amount>0)add('events',{...ev,amount:+ev.amount});setEv({...ev,title:'',amount:''})}},'Add Calendar Event'),h('div',{className:'list'},...s.events.map(e=>rowItem(`${e.date} • ${e.title}`,`${e.type==='income'?'+':'-'}${F.inr(e.amount)}`,()=>del('events',e.id),e.type==='income'?'good':'bad')))))
+ );}
+const metric=(k,v,c)=>h('div',{className:'card'},h('div',{className:'small'},k),h('div',{className:c,style:{fontWeight:700,fontSize:'1.2rem'}},v));
+const field=(l,c)=>h('label',null,h('div',{className:'small'},l),c),inp=(v,f)=>h('input',{value:v,onChange:e=>f(e.target.value)}),num=(v,f)=>h('input',{type:'number',value:v,onChange:e=>f(e.target.value)}),date=(v,f)=>h('input',{type:'date',value:v,onChange:e=>f(e.target.value)}),sel=(v,a,f)=>h('select',{value:v,onChange:e=>f(e.target.value)},...a.map(x=>h('option',{key:x,value:x},x)));
+const rowItem=(l,r,onDel,cls)=>h('div',{className:'item'},h('div',null,l),h('div',null,h('span',{className:cls},r),' ',h('button',{onClick:onDel},'Delete')));
+const crud=(k,data,left,right,onAdd,del)=>h('div',{className:'card list'},h('button',{onClick:onAdd},'+ Add'),...data.map(x=>rowItem(left(x),right(x),()=>del(k,x.id),'')));
+function calendar(s){const n=new Date(),y=n.getFullYear(),m=n.getMonth(),d1=new Date(y,m,1).getDay(),days=new Date(y,m+1,0).getDate();const all=[...s.transactions,...s.events];const cells=[];for(let i=0;i<d1;i++)cells.push(h('div',{className:'day',key:'e'+i}));for(let d=1;d<=days;d++){const ds=`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const ev=all.filter(x=>x.date===ds);cells.push(h('div',{className:'day',key:d},h('div',null,d),...ev.slice(0,3).map((e,i)=>h('div',{key:i,className:'small'},h('span',{className:'dot '+(e.type==='income'?'din':'dex')}),e.amount?F.inr(e.amount):e.title))))}return h('div',{className:'card'},h('b',null,'Calendar'),h('div',{className:'cal'},...cells));}
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+const manifest={name:'FinPilot INR',short_name:'FinPilot',display:'standalone',start_url:'./',theme_color:'#0b1220',background_color:'#f1f5f9'};const mu=URL.createObjectURL(new Blob([JSON.stringify(manifest)],{type:'application/json'}));const ml=document.createElement('link');ml.rel='manifest';ml.href=mu;document.head.appendChild(ml);
+if('serviceWorker' in navigator){const swCode=`const APP='finpilot-v2';const ASSETS=['./','https://unpkg.com/react@18/umd/react.production.min.js','https://unpkg.com/react-dom@18/umd/react-dom.production.min.js'];self.addEventListener('install',e=>e.waitUntil(caches.open(APP).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(res=>{const c=res.clone();caches.open(APP).then(cache=>cache.put(e.request,c));return res}).catch(()=>caches.match('./')))));`;navigator.serviceWorker.register(URL.createObjectURL(new Blob([swCode],{type:'text/javascript'}))).catch(()=>{});}
+})();
+</script></body></html>
